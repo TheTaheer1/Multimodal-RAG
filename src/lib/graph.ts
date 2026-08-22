@@ -1,5 +1,4 @@
-import { getOpenAI } from "./openai";
-import { getEnv } from "./env";
+import { createOllamaChat } from "./ollama";
 import { getSupabaseAdmin } from "./supabase";
 
 type InsertedObservation = {
@@ -83,18 +82,12 @@ async function materializeMediaTables(observations: InsertedObservation[]) {
 }
 
 async function extractEntitiesAndRelationships(userId: string, observations: InsertedObservation[]) {
-  const client = getOpenAI();
-  if (!client) return;
   const eligible = observations
     .filter((obs) => obs.kind !== "processing_note" && obs.content.length > 8)
     .slice(0, 40);
   if (eligible.length === 0) return;
-  const env = getEnv();
-  const response = await client.chat.completions.create({
-    model: env.OPENAI_CHAT_MODEL,
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
+  const content = await createOllamaChat(
+    [
       {
         role: "system",
         content:
@@ -104,9 +97,10 @@ async function extractEntitiesAndRelationships(userId: string, observations: Ins
         role: "user",
         content: eligible.map((obs) => `[${obs.id}] ${obs.content}`).join("\n\n")
       }
-    ]
-  });
-  const parsed = JSON.parse(response.choices[0]?.message.content ?? "{}") as ExtractedGraph;
+    ],
+    { json: true }
+  );
+  const parsed = JSON.parse(content || "{}") as ExtractedGraph;
   const supabase = getSupabaseAdmin();
   const entityIds = new Map<string, string>();
   for (const entity of parsed.entities ?? []) {

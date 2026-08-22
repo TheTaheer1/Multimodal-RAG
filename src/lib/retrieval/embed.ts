@@ -1,34 +1,20 @@
-import { getEnv } from "../env";
-import { getOpenAI } from "../openai";
+import { createOllamaEmbedding } from "../ollama";
+import { formatDatabaseError } from "../errors";
 import { getSupabaseAdmin } from "../supabase";
 
 export async function embedObservations(observations: Array<{ id: string; content: string }>) {
-  const client = getOpenAI();
-  if (!client || observations.length === 0) return;
-  const env = getEnv();
+  if (observations.length === 0) return;
   const supabase = getSupabaseAdmin();
   for (const obs of observations) {
-    const response = await client.embeddings.create({
-      model: env.OPENAI_EMBEDDING_MODEL,
-      input: obs.content.slice(0, 8000)
-    });
-    const embedding = response.data[0]?.embedding;
-    if (!embedding) continue;
+    const embedding = await createOllamaEmbedding(obs.content.slice(0, 8000));
     const { error } = await supabase.from("observation_embeddings").upsert({
       observation_id: obs.id,
       embedding
     });
-    if (error) throw error;
+    if (error) throw new Error(formatDatabaseError(error));
   }
 }
 
 export async function embedQuery(query: string) {
-  const client = getOpenAI();
-  if (!client) return null;
-  const env = getEnv();
-  const response = await client.embeddings.create({
-    model: env.OPENAI_EMBEDDING_MODEL,
-    input: query
-  });
-  return response.data[0]?.embedding ?? null;
+  return createOllamaEmbedding(query);
 }

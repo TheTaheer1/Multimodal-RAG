@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import exifr from "exifr";
-import { getEnv } from "../env";
-import { getOpenAI } from "../openai";
+import { createOllamaVision } from "../ollama";
 import type { ProcessingResult } from "../types";
 import { runImageOcr } from "./pdf";
 
@@ -33,7 +31,7 @@ export async function processImage(fileId: string, filePath: string, artifactPat
       content: description.text,
       artifactPath,
       confidence: 0.78,
-      metadata: { engine: "openai-vision", exif: await safeExif(filePath) }
+      metadata: { engine: "ollama-vision", exif: await safeExif(filePath) }
     });
   }
 
@@ -41,31 +39,11 @@ export async function processImage(fileId: string, filePath: string, artifactPat
 }
 
 async function describeImage(filePath: string) {
-  const client = getOpenAI();
-  if (!client) return { text: "", warning: "OPENAI_API_KEY is not configured; vision understanding skipped." };
-  const env = getEnv();
   const image = await fs.readFile(filePath);
-  const ext = path.extname(filePath).toLowerCase().replace(".", "") || "jpeg";
-  const mime = ext === "jpg" ? "jpeg" : ext;
-  const response = await client.chat.completions.create({
-    model: env.OPENAI_VISION_MODEL,
-    messages: [
-      {
-        role: "system",
-        content:
-          "Describe only visible evidence. Extract diagram structure, entities, labels, relationships, and uncertainty. Do not invent hidden text."
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "Analyze this image for a multimodal evidence graph." },
-          { type: "image_url", image_url: { url: `data:image/${mime};base64,${image.toString("base64")}` } }
-        ]
-      }
-    ],
-    temperature: 0
-  });
-  return { text: response.choices[0]?.message.content?.trim() ?? "", warning: null };
+  return createOllamaVision(
+    "Describe only visible evidence. Extract diagram structure, entities, labels, relationships, and uncertainty. Do not invent hidden text.",
+    image.toString("base64")
+  );
 }
 
 async function safeExif(filePath: string) {

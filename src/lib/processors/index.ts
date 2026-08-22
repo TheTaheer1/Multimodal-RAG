@@ -11,6 +11,7 @@ import { processVideo } from "./video";
 import { processDocument } from "./document";
 import { embedObservations } from "../retrieval/embed";
 import { materializeGraph } from "../graph";
+import { formatError } from "../errors";
 
 export async function processFile(fileId: string) {
   const supabase = getSupabaseAdmin();
@@ -38,16 +39,42 @@ export async function processFile(fileId: string) {
             ? await processVideo(fileId, filePath, workDir)
             : await processDocument(fileId, filePath);
 
+  await supabase.from("observations").delete().eq("file_id", fileId);
   const inserted = await insertObservations(result.observations);
-  await updateFileStatus(fileId, "PROCESSING", 75);
-  await embedObservations(inserted.map((row) => ({ id: row.id, content: row.content })));
-  await materializeGraph(file.user_id, inserted);
+  await updateFileStatus(fileId, "PROCESSING", 75, "Generating Ollama embeddings...");
+  const warnings = [...result.warnings];
+  try {
+    await embedObservations(inserted.map((row) => ({ id: row.id, content: row.content })));
+  } catch (error) {
+    warnings.push(`Embedding skipped: ${friendlyError(error)}`);
+  }
+  await updateFileStatus(fileId, "PROCESSING", 86, "Building evidence graph...");
+  try {
+    await materializeGraph(file.user_id, inserted);
+  } catch (error) {
+    warnings.push(`Graph enrichment partially skipped: ${friendlyError(error)}`);
+  }
+  await updateFileStatus(fileId, "PROCESSING", 94, "Saving processing notes...");
 
-  for (const warning of result.warnings) {
+  for (const warning of warnings) {
     await insertProcessingNote(fileId, file.modality, warning, { severity: "warning" });
   }
 
   await fs.rm(workDir, { recursive: true, force: true });
-  const finalStatus = result.warnings.length > 0 ? "PARTIALLY_PROCESSED" : "COMPLETED";
-  await updateFileStatus(fileId, finalStatus, 100, result.warnings.join("\n") || null);
+  const finalStatus = warnings.length > 0 ? "PARTIALLY_PROCESSED" : "COMPLETED";
+  await updateFileStatus(fileId, finalStatus, 100, warnings.join("\n") || null);
+}
+
+function friendlyError(error: unknown) {
+  const message = formatError(error);
+  if (message.includes("Ollama is not running")) {
+    return "Ollama is not running. Start it with: ollama serve";
+  }
+  if (message.includes("timed out")) {
+    return `${message} Local Ollama can be slow on first run; try again after the model has warmed up.`;
+  }
+  if (message.includes("Ollama model") || message.includes("Ollama embedding model") || message.includes("Embedding dimension mismatch")) {
+    return message;
+  }
+  return message;
 }

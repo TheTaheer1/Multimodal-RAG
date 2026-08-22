@@ -61,7 +61,7 @@ create index if not exists observations_time_idx on observations(file_id, timest
 
 create table if not exists observation_embeddings (
   observation_id uuid primary key references observations(id) on delete cascade,
-  embedding vector(3072),
+  embedding vector(768),
   created_at timestamptz not null default now()
 );
 
@@ -192,7 +192,7 @@ create table if not exists speaker_face_links (
 );
 
 create or replace function match_observations(
-  query_embedding vector(3072),
+  query_embedding vector(768),
   match_count int,
   user_id_filter text
 )

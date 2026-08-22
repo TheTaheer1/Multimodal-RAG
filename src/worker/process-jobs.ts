@@ -1,6 +1,9 @@
+import { loadEnvConfig } from "@next/env";
 import { processFile } from "../lib/processors";
 import { getSupabaseAdmin } from "../lib/supabase";
 import { updateFileStatus } from "../lib/db";
+
+loadEnvConfig(process.cwd());
 
 const pollMs = 2500;
 

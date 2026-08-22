@@ -1,5 +1,9 @@
 .env.example
+.env.local
 node_modules
 .next
 .next-stale-*
 *.tsbuildinfo
+models/*.bin
+__pycache__
+*.py[cod]

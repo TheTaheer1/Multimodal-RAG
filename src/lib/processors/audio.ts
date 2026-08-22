@@ -1,31 +1,47 @@
-import fs from "node:fs";
-import { getOpenAI } from "../openai";
+import { getOptionalEnv } from "../env";
 import type { ProcessingResult } from "../types";
+import { formatError } from "../errors";
+import { parseCommandJson } from "./util";
+
+type TranscriptSegment = {
+  text: string;
+  start_time?: number;
+  end_time?: number;
+  start?: number;
+  end?: number;
+  confidence?: number;
+};
 
 export async function processAudio(fileId: string, filePath: string): Promise<ProcessingResult> {
-  const client = getOpenAI();
-  if (!client) {
+  const env = getOptionalEnv();
+  if (!env.SPEECH_TO_TEXT_COMMAND) {
     return {
       observations: [],
-      warnings: ["OPENAI_API_KEY is not configured; speech-to-text skipped."]
+      warnings: ["SPEECH_TO_TEXT_COMMAND is not configured; local speech-to-text skipped."]
     };
   }
-  const transcription = await client.audio.transcriptions.create({
-    file: fs.createReadStream(filePath),
-    model: "whisper-1",
-    response_format: "verbose_json",
-    timestamp_granularities: ["segment"]
-  });
-  const segments = "segments" in transcription && Array.isArray(transcription.segments) ? transcription.segments : [];
-  const observations: ProcessingResult["observations"] = segments.map((segment) => ({
-    fileId,
-    modality: "audio" as const,
-    kind: "transcript" as const,
-    content: String(segment.text ?? "").trim(),
-    timestampStart: Number(segment.start ?? 0),
-    timestampEnd: Number(segment.end ?? 0),
-    confidence: 0.86,
-    metadata: { engine: "openai-whisper" }
-  })).filter((item) => item.content.length > 0);
-  return { observations, warnings: [] };
+  try {
+    const segments = await parseCommandJson<TranscriptSegment[]>(env.SPEECH_TO_TEXT_COMMAND, filePath);
+    const observations: ProcessingResult["observations"] = segments.map((segment) => ({
+      fileId,
+      modality: "audio" as const,
+      kind: "transcript" as const,
+      content: String(segment.text ?? "").trim(),
+      timestampStart: Number(segment.start_time ?? segment.start ?? 0),
+      timestampEnd: Number(segment.end_time ?? segment.end ?? 0),
+      confidence: segment.confidence ?? 0.8,
+      metadata: { engine: "local-speech-to-text-command" }
+    })).filter((item) => item.content.length > 0);
+    return { observations, warnings: [] };
+  } catch (error) {
+    return {
+      observations: [],
+      warnings: [`Speech-to-text skipped: ${friendlyAudioError(error)}`]
+    };
+  }
+}
+
+function friendlyAudioError(error: unknown) {
+  const message = formatError(error);
+  return `${message}. Configure SPEECH_TO_TEXT_COMMAND with a local transcription command that outputs transcript segments as JSON.`;
 }
