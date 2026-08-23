@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Database, FileUp, Loader2, Search, ShieldCheck, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, Database, FileUp, Loader2, Search, ShieldCheck, TriangleAlert } from "lucide-react";
 
 type FileRow = {
   id: string;
@@ -14,6 +14,8 @@ type FileRow = {
 };
 
 type QueryResult = {
+  queryId: string;
+  question: string;
   answer: string;
   citations: Array<{
     id: string;
@@ -38,6 +40,9 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [querying, setQuerying] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [history, setHistory] = useState<QueryResult[]>([]);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const activeQueryRef = useRef(0);
 
   async function refreshFiles() {
     const payload = await fetchJson(`/api/files/status?userId=${encodeURIComponent(userId)}`);
@@ -72,16 +77,28 @@ export default function Home() {
 
   async function ask() {
     if (!question.trim()) return;
+    const submittedQuestion = question.trim();
+    const requestId = activeQueryRef.current + 1;
+    activeQueryRef.current = requestId;
     setQuerying(true);
     setResult(null);
+    setEvidenceOpen(false);
+    setMessage("Analyzing evidence...");
     const payload = await fetchJson("/api/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, userId })
+      body: JSON.stringify({ question: submittedQuestion, userId })
     });
+    if (requestId !== activeQueryRef.current) return;
     setQuerying(false);
-    if (payload.success) setResult(payload);
-    else setMessage(payload.error.message);
+    if (payload.success) {
+      const nextResult = { ...payload, question: submittedQuestion };
+      setResult(nextResult);
+      setHistory((previous) => [nextResult, ...previous.filter((item) => item.queryId !== nextResult.queryId)].slice(0, 10));
+      setMessage("");
+    } else {
+      setMessage(payload.error.message);
+    }
   }
 
   return (
@@ -143,21 +160,59 @@ export default function Home() {
             <div className="space-y-4">
               <article className="rounded-md border border-ink/10 bg-white p-5 shadow-sm">
                 <h3 className="mb-3 text-lg font-semibold">Answer</h3>
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-ink/80">{result.answer}</pre>
+                <AnswerText text={result.answer} />
               </article>
-              <div className="grid gap-3">
-                {result.citations.map((citation, index) => (
-                  <article key={citation.id} className="rounded-md border border-ink/10 bg-white p-4">
-                    <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-normal text-steel">
-                      <span>E{index + 1}</span>
-                      <span>{citation.original_filename}</span>
-                      <span>{citation.modality}</span>
-                      <span>{citation.kind}</span>
+              {result.citations.length > 0 ? (
+                <div className="rounded-md border border-ink/10 bg-white shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setEvidenceOpen((open) => !open)}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold"
+                  >
+                    <span>View supporting evidence ({result.citations.length})</span>
+                    {evidenceOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  </button>
+                  {evidenceOpen ? (
+                    <div className="grid gap-3 border-t border-ink/10 p-4">
+                      {result.citations.slice(0, 8).map((citation, index) => (
+                        <article key={citation.id} className="rounded-md border border-ink/10 bg-paper/50 p-4">
+                          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-normal text-steel">
+                            <span>E{index + 1}</span>
+                            <span>{citation.original_filename}</span>
+                            <span>{citation.modality}</span>
+                            <span>{citation.kind}</span>
+                            {citation.page_number ? <span>page {citation.page_number}</span> : null}
+                            {citation.timestamp_start !== null ? <span>{citation.timestamp_start.toFixed(2)}s</span> : null}
+                            {citation.frame_timestamp !== null ? <span>frame {citation.frame_timestamp.toFixed(2)}s</span> : null}
+                          </div>
+                          <p className="line-clamp-5 text-sm leading-6 text-ink/75">{citation.content}</p>
+                        </article>
+                      ))}
                     </div>
-                    <p className="line-clamp-5 text-sm leading-6 text-ink/75">{citation.content}</p>
-                  </article>
-                ))}
-              </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {history.length > 1 ? (
+                <section className="rounded-md border border-ink/10 bg-white p-4 shadow-sm">
+                  <h3 className="mb-2 text-sm font-semibold">Query History</h3>
+                  <div className="grid gap-1">
+                    {history.slice(0, 10).map((item) => (
+                      <button
+                        key={item.queryId}
+                        type="button"
+                        onClick={() => {
+                          setResult(item);
+                          setQuestion(item.question);
+                          setEvidenceOpen(false);
+                        }}
+                        className="truncate rounded-sm px-2 py-1 text-left text-sm text-ink/70 hover:bg-paper"
+                      >
+                        {item.question}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -188,6 +243,36 @@ export default function Home() {
         </aside>
       </section>
     </main>
+  );
+}
+
+function AnswerText({ text }: { text: string }) {
+  return (
+    <div className="space-y-2 text-sm leading-6 text-ink/80">
+      {text.split("\n").map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={index} className="h-1" />;
+        if (trimmed.startsWith("### ")) {
+          return (
+            <h4 key={index} className="pt-2 text-sm font-semibold text-ink">
+              {trimmed.replace(/^###\s+/, "")}
+            </h4>
+          );
+        }
+        if (/^[-*]\s+/.test(trimmed)) {
+          return (
+            <div key={index} className="pl-4">
+              <span className="mr-2">-</span>
+              <span>{trimmed.replace(/^[-*]\s+/, "")}</span>
+            </div>
+          );
+        }
+        if (/^\d+\.\s+/.test(trimmed)) {
+          return <p key={index}>{trimmed}</p>;
+        }
+        return <p key={index}>{line}</p>;
+      })}
+    </div>
   );
 }
 

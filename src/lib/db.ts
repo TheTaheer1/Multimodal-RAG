@@ -43,7 +43,20 @@ export async function findDuplicateFile(userId: string, checksum: string) {
 }
 
 export async function enqueueJob(fileId: string, kind = "PROCESS_FILE") {
-  const { data, error } = await getSupabaseAdmin()
+  const supabase = getSupabaseAdmin();
+  const { data: existing, error: existingError } = await supabase
+    .from("processing_jobs")
+    .select("*")
+    .eq("file_id", fileId)
+    .eq("kind", kind)
+    .in("status", ["QUEUED", "PROCESSING"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing) return existing;
+
+  const { data, error } = await supabase
     .from("processing_jobs")
     .insert({ file_id: fileId, kind, status: "QUEUED" })
     .select("*")

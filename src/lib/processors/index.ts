@@ -56,13 +56,17 @@ export async function processFile(fileId: string) {
   }
   await updateFileStatus(fileId, "PROCESSING", 94, "Saving processing notes...");
 
-  for (const warning of warnings) {
-    await insertProcessingNote(fileId, file.modality, warning, { severity: "warning" });
+  const summarizedWarnings = summarizeWarnings(warnings);
+  for (const warning of summarizedWarnings) {
+    await insertProcessingNote(fileId, file.modality, warning.message, {
+      severity: "warning",
+      count: warning.count
+    });
   }
 
   await fs.rm(workDir, { recursive: true, force: true });
-  const finalStatus = warnings.length > 0 ? "PARTIALLY_PROCESSED" : "COMPLETED";
-  await updateFileStatus(fileId, finalStatus, 100, warnings.join("\n") || null);
+  const finalStatus = summarizedWarnings.length > 0 ? "PARTIALLY_PROCESSED" : "COMPLETED";
+  await updateFileStatus(fileId, finalStatus, 100, formatWarnings(summarizedWarnings));
 }
 
 function friendlyError(error: unknown) {
@@ -77,4 +81,19 @@ function friendlyError(error: unknown) {
     return message;
   }
   return message;
+}
+
+function summarizeWarnings(warnings: string[]) {
+  const map = new Map<string, { message: string; count: number }>();
+  for (const warning of warnings.map((item) => item.trim()).filter(Boolean)) {
+    const existing = map.get(warning);
+    if (existing) existing.count += 1;
+    else map.set(warning, { message: warning, count: 1 });
+  }
+  return [...map.values()];
+}
+
+function formatWarnings(warnings: Array<{ message: string; count: number }>) {
+  if (warnings.length === 0) return null;
+  return warnings.map((warning) => (warning.count > 1 ? `${warning.message} (${warning.count} times)` : warning.message)).join("\n");
 }

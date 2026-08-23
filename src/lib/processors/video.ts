@@ -24,8 +24,8 @@ export async function processVideo(fileId: string, filePath: string, workDir: st
 
   const framesDir = path.join(workDir, "frames");
   await fs.mkdir(framesDir, { recursive: true });
-  await runCommand(env.FFMPEG_PATH, ["-y", "-i", filePath, "-vf", "fps=1/5", path.join(framesDir, "frame-%06d.jpg")], 600_000);
-  const frameFiles = (await fs.readdir(framesDir)).filter((name) => name.endsWith(".jpg")).sort();
+  await extractFrames(env.FFMPEG_PATH, filePath, framesDir);
+  const frameFiles = (await fs.readdir(framesDir)).filter((name) => name.endsWith(".png")).sort();
   const manifest = frameFiles.map((name, index) => ({
     frame_path: path.join(framesDir, name),
     timestamp: index * 5
@@ -115,4 +115,41 @@ export async function processVideo(fileId: string, filePath: string, workDir: st
   }
 
   return { observations, warnings };
+}
+
+async function extractFrames(ffmpegPath: string, filePath: string, framesDir: string) {
+  const outputPattern = path.join(framesDir, "frame-%06d.png");
+  try {
+    await runCommand(
+      ffmpegPath,
+      ["-y", "-i", filePath, "-an", "-vf", "fps=1/5,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=rgb24", "-frames:v", "80", outputPattern],
+      600_000
+    );
+  } catch {
+    // Fall through to the first-frame fallback below.
+  }
+
+  if ((await countExtractedFrames(framesDir)) > 0) return;
+
+  try {
+    await runCommand(
+      ffmpegPath,
+      ["-y", "-i", filePath, "-an", "-vf", "select=eq(n\\,0),scale=trunc(iw/2)*2:trunc(ih/2)*2,format=rgb24", "-frames:v", "1", outputPattern],
+      600_000
+    );
+  } catch {
+    await runCommand(
+      ffmpegPath,
+      ["-y", "-ss", "0", "-i", filePath, "-an", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=rgb24", "-frames:v", "1", outputPattern],
+      600_000
+    );
+  }
+
+  if ((await countExtractedFrames(framesDir)) === 0) {
+    throw new Error("FFmpeg did not extract any video frames.");
+  }
+}
+
+async function countExtractedFrames(framesDir: string) {
+  return (await fs.readdir(framesDir)).filter((name) => name.endsWith(".png")).length;
 }

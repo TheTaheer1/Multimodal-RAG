@@ -120,16 +120,17 @@ Speaker diarization, face detection, and active-speaker detection are dedicated 
 Local default adapters are included:
 
 ```bash
-python3 -m pip install opencv-python
-ollama pull llama3.2-vision
+python3 -m venv .venv
+.venv/bin/python -m pip install opencv-python
+ollama pull gemma3
 ```
 
 Then set:
 
 ```bash
-OLLAMA_VISION_MODEL=llama3.2-vision
+OLLAMA_VISION_MODEL=gemma3:latest
 SPEAKER_DIARIZATION_COMMAND=node scripts/local-video/whisper-diarize-json.mjs
-FACE_DETECTION_COMMAND=python3 scripts/local-video/face-detect-track.py
+FACE_DETECTION_COMMAND=.venv/bin/python scripts/local-video/face-detect-track.py
 ACTIVE_SPEAKER_COMMAND=node scripts/local-video/active-speaker-single-face.mjs
 ```
 

@@ -104,7 +104,7 @@ async function extractEntitiesAndRelationships(userId: string, observations: Ins
   const supabase = getSupabaseAdmin();
   const entityIds = new Map<string, string>();
   for (const entity of parsed.entities ?? []) {
-    if (!entity.name || !entity.type) continue;
+    if (typeof entity.name !== "string" || typeof entity.type !== "string") continue;
     const { data } = await supabase
       .from("entities")
       .insert({
@@ -120,6 +120,7 @@ async function extractEntitiesAndRelationships(userId: string, observations: Ins
   }
   for (const obs of eligible) {
     for (const entity of parsed.entities ?? []) {
+      if (typeof entity.name !== "string") continue;
       const id = entityIds.get(entity.name.toLowerCase());
       if (id && obs.content.toLowerCase().includes(entity.name.toLowerCase())) {
         await supabase.from("observation_entities").upsert({
@@ -132,6 +133,7 @@ async function extractEntitiesAndRelationships(userId: string, observations: Ins
     }
   }
   for (const rel of parsed.relationships ?? []) {
+    if (typeof rel.source !== "string" || typeof rel.target !== "string" || typeof rel.type !== "string") continue;
     const sourceObs = eligible.find((obs) => obs.content.toLowerCase().includes(rel.source.toLowerCase()));
     const targetObs = eligible.find((obs) => obs.content.toLowerCase().includes(rel.target.toLowerCase()));
     if (sourceObs && targetObs && sourceObs.id !== targetObs.id) {

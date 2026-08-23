@@ -176,9 +176,10 @@ export async function createOllamaVision(prompt: string, base64Image: string) {
     120_000
   );
   if (!response.ok) {
+    const body = await response.text();
     return {
       text: "",
-      warning: `Ollama vision generation failed (${response.status}): ${await response.text()}`
+      warning: visionFailureMessage(env.OLLAMA_VISION_MODEL, response.status, body)
     };
   }
   const payload = (await response.json()) as { message?: { content?: string } };
@@ -187,6 +188,13 @@ export async function createOllamaVision(prompt: string, base64Image: string) {
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/$/, "");
+}
+
+function visionFailureMessage(model: string, status: number, body: string) {
+  if (body.includes("unknown model architecture")) {
+    return `Ollama cannot load vision model ${model} with the installed Ollama runtime. Use a compatible vision model such as gemma3:latest, or update Ollama.`;
+  }
+  return `Ollama vision generation failed (${status}): ${body}`;
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
